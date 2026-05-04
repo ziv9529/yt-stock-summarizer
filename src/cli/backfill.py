@@ -40,7 +40,8 @@ def _configure_logging(level: str) -> None:
     help="Path to SQLite database file",
 )
 @click.option("--log-level", default=config.LOG_LEVEL, show_default=True, help="Logging level")
-def backfill(channel: str, limit: int, db_path: str, log_level: str) -> None:
+@click.option("--skip-non-finance", is_flag=True, default=False, help="Skip videos whose title lacks finance keywords (free pre-filter)")
+def backfill(channel: str, limit: int, db_path: str, log_level: str, skip_non_finance: bool) -> None:
     """Backfill all videos from a YouTube channel into the local database."""
     _configure_logging(log_level)
     db = Path(db_path)
@@ -93,6 +94,7 @@ def backfill(channel: str, limit: int, db_path: str, log_level: str) -> None:
                     video_date=video["video_date"],
                     db_path=db,
                     client=client,
+                    skip_non_finance=skip_non_finance,
                 )
                 if did_process:
                     processed += 1

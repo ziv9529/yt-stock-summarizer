@@ -9,6 +9,19 @@ from src.youtube import fetch_transcript, segments_to_text
 
 log = structlog.get_logger()
 
+_FINANCE_KEYWORDS = {
+    "stock", "stocks", "invest", "investing", "investment", "portfolio",
+    "buy", "sell", "bull", "bear", "earnings", "revenue", "market",
+    "ticker", "share", "shares", "dividend", "etf", "fund", "trade",
+    "trading", "equity", "valuation", "price target", "analysis",
+    "nasdaq", "s&p", "dow", "nyse", "crypto", "bitcoin",
+}
+
+
+def _looks_like_finance(title: str) -> bool:
+    lower = title.lower()
+    return any(kw in lower for kw in _FINANCE_KEYWORDS)
+
 
 def process_video(
     video_id: str,
@@ -16,6 +29,7 @@ def process_video(
     video_date: str | None,
     db_path: Path,
     client: LLMClient,
+    skip_non_finance: bool = False,
 ) -> bool:
     """Fetch transcript, call Claude, persist summary. Returns True if processed, False if skipped.
 
@@ -26,6 +40,10 @@ def process_video(
         if get_summary(conn, video_id) is not None:
             log.debug("video_already_processed", video_id=video_id)
             return False
+
+    if skip_non_finance and not _looks_like_finance(title):
+        log.info("title_filter_skip", video_id=video_id, title=title)
+        return False
 
     transcript_result = fetch_transcript(video_id)
     if transcript_result is None:
