@@ -1,0 +1,88 @@
+{
+  "type": "object",
+  "required": [
+    "is_finance_content",
+    "tldr",
+    "key_points",
+    "tickers_mentioned",
+    "topics",
+    "overall_sentiment",
+    "sentiment_score"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "is_finance_content": {
+      "type": "boolean",
+      "description": "True if the video meaningfully discusses stocks, markets, or investing. False for off-topic content."
+    },
+    "tldr": {
+      "type": "string",
+      "description": "1-2 sentence summary of the video's main argument or content."
+    },
+    "key_points": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["timestamp", "point"],
+        "properties": {
+          "timestamp": { "type": "string", "description": "mm:ss or hh:mm:ss" },
+          "point": { "type": "string", "description": "One sentence." }
+        }
+      }
+    },
+    "tickers_mentioned": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["symbol", "stance"],
+        "properties": {
+          "symbol": { "type": "string", "description": "Ticker symbol, uppercase. e.g. NVDA, BRK.B" },
+          "stance": {
+            "type": "string",
+            "enum": ["bullish", "bearish", "neutral", "mentioned_only"],
+            "description": "The speaker's directional stance. Use mentioned_only if no view was expressed."
+          },
+          "price_target": { "type": ["string", "null"], "description": "If the speaker stated a price target." },
+          "time_horizon": {
+            "type": ["string", "null"],
+            "enum": ["short_term", "medium_term", "long_term", null],
+            "description": "The time horizon for the stance, if stated."
+          },
+          "rationale": { "type": "string", "description": "Why the speaker holds this stance, in one sentence." },
+          "timestamp": { "type": ["string", "null"], "description": "mm:ss where this ticker is first discussed." }
+        }
+      }
+    },
+    "topics": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Free-form topic tags. e.g. 'AI infrastructure', 'Fed policy', 'earnings season'."
+    },
+    "macro_views": {
+      "type": ["string", "null"],
+      "description": "Speaker's views on macro factors (rates, inflation, recession) if stated."
+    },
+    "overall_sentiment": {
+      "type": "string",
+      "enum": ["bullish", "bearish", "neutral"],
+      "description": "Overall directional sentiment of the speaker for this video."
+    },
+    "sentiment_score": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "description": "Overall market sentiment: 1=very bearish, 5=neutral, 10=very bullish."
+    },
+    "notable_quotes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["timestamp", "quote"],
+        "properties": {
+          "timestamp": { "type": "string" },
+          "quote": { "type": "string", "description": "Verbatim quote, max 30 words." }
+        }
+      }
+    }
+  }
+}
