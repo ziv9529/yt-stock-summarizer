@@ -10,30 +10,25 @@ update these directly.
 
 ---
 
-## MVP — "I have a queryable archive"
+## MVP — "I have a free, queryable raw data lake"
 
-**Goal:** End-to-end CLI tool that ingests a channel's full back catalog
-and lets the user run SQL queries against the structured summaries.
+**Goal:** End-to-end CLI tool that ingests a channel's full back catalog for free,
+without any Claude API calls.
 
 **Definition of done:**
-- One command: `python -m src.cli.backfill --channel @SomeStockGuy`
-- Pulls every video, fetches transcripts, calls Claude, writes to SQLite
-- Resumable: re-running skips already-processed videos
-- The user can answer "every NVDA mention with bullish stance this year"
-  with a single SQL query
+- One command: `python -m src.cli.ingest --channel @SomeStockGuy`
+- Pulls every video metadata and fetches transcripts into SQLite. Costs exactly $0.00.
+- Resumable: re-running skips already-processed videos.
 
 ### Setup
 - [ ] Initialize git repo, add Python `.gitignore`
-- [x] Set up `pyproject.toml` with dependencies (yt-dlp,
-      youtube-transcript-api, anthropic, structlog, pytest, click)
-- [x] Create `.env.example` with `ANTHROPIC_API_KEY=`
+- [x] Set up `pyproject.toml` with dependencies (yt-dlp, youtube-transcript-api, structlog, pytest, click)
+- [x] Create `.env.example`
 - [x] Add `src/config.py` reading env vars and exposing typed constants
-- [x] Pin model strings in config (sonnet `claude-sonnet-4-6`,
-      haiku `claude-haiku-4-5-20251001`)
-- [x] Verify project runs: `python -c "from src import config; print(config.ANTHROPIC_API_KEY[:6])"`
+- [x] Verify project runs.
 
 ### Data layer
-- [x] Define schema in `src/db.py` (videos, summaries, chunks tables)
+- [x] Define schema in `src/db.py` (videos, chunks tables)
 - [x] Add `init_db()`, `upsert_video()`, `get_video()`,
       `list_unprocessed(channel)` helpers
 - [x] Write tests for each helper using a temp DB fixture
@@ -44,73 +39,41 @@ and lets the user run SQL queries against the structured summaries.
 - [x] Handle the "no captions available" case — return None, don't raise
 - [x] Test against 2-3 real public videos (small fixture file)
 
-### Claude integration
-- [x] `src/llm.py`: client wrapper with retry, prompt caching, model selection
-- [x] `src/prompts/system.txt`: stock-analyst system prompt
-- [x] `src/prompts/schema.json`: structured-output JSON schema
-- [x] `src/llm.py`: `summarize_video(transcript, metadata)` → validated dict
-- [x] Test with one cached real transcript; assert schema fields populated
-
-### Pipeline
-- [x] `src/process_video.py`: `process_video(video_id)` orchestrates fetch → clean → summarize → persist
-- [x] Atomic write — if Claude call fails, no partial row remains
-- [x] Idempotent — re-running on a processed video is a no-op
-
-### CLI
-- [x] `src/cli/backfill.py`: parses `--channel`, lists videos, loops calling `process_video`
+### Pipeline & CLI
+- [x] `src/process_video.py`: `process_video_metadata(video_id)` fetching and atomic DB write ONLY.
+- [x] `src/cli/ingest.py`: parses `--channel`, lists videos, loops calling ingest
 - [x] Progress bar (`rich.progress` or `tqdm`)
-- [x] Resume support — list_unprocessed handles it
-- [x] `--limit N` flag for testing on a subset
+- [x] First real run: Ingest all 500+ videos. Cost is $0.
 
-### First real run
-- [x] Run on the user's actual chosen channel with `--limit 5`
-- [x] Inspect summaries by hand — are tickers extracted? Stances correct?
-- [x] Iterate on system prompt until the output is genuinely useful
-- [x] Run full backfill
-- [x] Write 5 example SQL queries in `docs/queries.md` and confirm they answer real questions
-
-**Estimated time:** one focused weekend (8–12 hours for someone comfortable with Python).
+**Estimated time:** one focused weekend.
 
 ---
 
-## V1 — "I can ask questions across the whole archive"
+## V1 — "I can search smartly and ask AI on-demand"
 
-**Goal:** Add semantic search over transcript chunks and a chat-style CLI
-that does RAG to answer fuzzy questions across all videos.
+**Goal:** Add semantic search (local open-source models) over transcript chunks,
+and ONLY use AI to summarize what was found. Cost-effective answers across the archive.
 
 **Definition of done:**
-- `python -m src.cli.ask "what's his current view on AI infrastructure?"`
-- Answer cites which videos and timestamps it came from
-- User can have a follow-up turn that maintains context
+- `python -m src.cli.embed` to build the local knowledge base.
+- `python -m src.cli.ask "what's his current view on NVDA?"`
+- Query hits local DB, retrieves 3-5 relevant chunks, passes them to Claude Sonnet (Pennies).
 
-### Embeddings
-- [ ] Pick embedding provider (Voyage AI free tier or OpenAI text-embedding-3-small)
-      → record decision in `docs/decisions.md`
-- [ ] Add embedding dependency, set up API key in `.env.example`
-- [ ] `src/llm.py`: `embed(texts: list[str]) → list[list[float]]`
-- [ ] Install `sqlite-vec` extension; add `embeddings` virtual table to schema
-- [ ] Backfill embeddings for all chunks already in DB
+### Local Embeddings & ETL
+- [ ] Add `sentence-transformers` for local embeddings (e.g. `all-MiniLM-L6-v2`)
+- [ ] `src/chunking.py`: split transcript into ~500-token chunks.
+- [ ] Create `embeddings` virtual table using `sqlite-vec`
+- [ ] Backfill embeddings for all downloaded videos (`src/cli/embed.py`). Costs $0.00.
 
-### Chunking
-- [ ] `src/chunking.py`: split transcript into ~500-token chunks preserving timestamps
-- [ ] Run chunker over existing transcripts, store in `chunks` table
-- [ ] Test that timestamps round-trip correctly
+### Claude On-Demand Integration
+- [x] `src/llm.py`: client wrapper with retry
+- [x] `src/prompts/system.txt`: stock-analyst system prompt
+- [x] `src/prompts/schema.json`: structured-output JSON schema for summarizing queried results
 
-### Retrieval
-- [ ] `src/retrieval.py`: `search(query, k=8)` → top-k chunks by cosine similarity
-- [ ] `src/retrieval.py`: `build_context(chunks)` → formatted string with citations
-- [ ] Test that obvious queries hit obvious chunks
-
-### Chat CLI
-- [ ] `src/cli/ask.py`: REPL loop, sends user question + retrieved context to Sonnet
+### Retrieval & Chat
+- [ ] `src/retrieval.py`: `search(query, k=5)` → top-k chunks by local cosine similarity
+- [ ] `src/cli/ask.py`: uses retrieve, sends relevant context to Sonnet, and provides cited answers.
 - [ ] Multi-turn — keep last N turns in context
-- [ ] Format responses with `[video title @ MM:SS]` citations
-- [ ] Conversation history saved to SQLite for later review
-
-### Evaluation
-- [ ] Write 10 representative questions in `tests/eval_questions.md`
-- [ ] Manually grade answers against the actual videos
-- [ ] Iterate on prompts and retrieval k until quality is acceptable
 
 **Estimated time:** one weekend.
 

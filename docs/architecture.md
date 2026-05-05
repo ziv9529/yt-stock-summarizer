@@ -15,54 +15,41 @@ function. Get that function right and the rest is plumbing.
 ## Data flow
 
 ```
-Trigger → Fetcher → Processor → Storage → Consumption
+Trigger → Ingester → Storage → Local ETL/RAG → Consumption (On-Demand AI)
 ```
 
 **Trigger** decides which videos to process. Three kinds:
 
 - *Backfill* — a script that lists every video on a channel and queues
-  unprocessed ones (MVP).
+  unprocessed ones for metadata and transcript fetching (MVP).
 - *Manual* — process a single video by URL on demand (V1).
 - *Live webhook* — PubSubHubbub notification when the channel uploads
   (V2). PubSubHubbub is YouTube's free push system; no quota, no polling.
 
-**Fetcher** pulls raw inputs:
+**Ingester** pulls raw inputs (100% FREE):
 
 - `yt-dlp` lists videos and returns metadata (title, description,
   published date, duration).
 - `youtube-transcript-api` returns the transcript with per-segment
-  timestamps. If unavailable, log and skip — Whisper fallback is V3.
+  timestamps. If unavailable, log and skip.
 
-**Processor** is the core:
-
-1. Optional cleaning pass with Haiku — adds punctuation, fixes
-   homophone errors common in auto-captions ("nvidya" → "Nvidia").
-2. Main summarization pass with Sonnet — returns a single JSON object
-   matching the schema in `docs/prompts.md`. The schema is enforced via
-   tool-use (preferred) or prefilling.
-3. Persistence — write metadata, transcript, and parsed structured fields
-   to SQLite atomically. If any step fails, leave the row absent so the
-   backfill can retry it cleanly on the next run.
-
-**Storage** is SQLite with three tables:
+**Storage** is SQLite with three primary tables:
 
 - `videos` — one row per video, holds metadata + raw transcript text.
-- `summaries` — one row per video, holds the structured Claude output.
 - `chunks` — one row per ~500-token transcript segment, with timestamps.
-  Embeddings get added in V1 when we wire up `sqlite-vec`.
+  Embeddings get added using a local open-source model (e.g., `all-MiniLM-L6-v2`) via `sqlite-vec`.
 
-Schema lives in `src/db.py` as a single `SCHEMA` constant applied
-idempotently with `CREATE TABLE IF NOT EXISTS`.
+**Local ETL/RAG** is the free preprocessing layer:
 
-**Consumption** is how the user gets value out:
+1. Runs open-source local embeddings on the text chunks.
+2. Runs basic Python regex/keyword extractors to find tickers locally before AI is used.
 
-- *MVP* — SQL queries directly against the DB. The user (you) writes
-  ad-hoc queries to answer questions like "every NVDA mention this year".
-- *V1* — semantic search via embeddings, plus a CLI that does RAG over
-  transcript chunks for fuzzy questions ("what did he say about geopolitical
-  risk").
-- *V2* — push notifications on new uploads via Telegram bot.
-- *V3* — web UI over the same data.
+**Consumption (On-Demand AI)** is how the user gets value out (PENNIES):
+
+Instead of paying to summarize the entire channel upfront, AI is applied *just-in-time*.
+- You query your local database/RAG index for a topic or ticker (e.g. "NVDA").
+- The database returns the top 3-5 most matched transcript chunks.
+- Only these specific chunks are sent to Claude (Sonnet) to generate the final summarized answer.
 
 ## Module layout
 
@@ -71,17 +58,19 @@ src/
 ├── __init__.py
 ├── config.py          # paths, model strings, API keys from env
 ├── db.py              # schema, queries, transactions
-├── llm.py             # Claude client wrapper: retries, caching, models
+├── llm.py             # Claude client wrapper for on-demand analysis
 ├── youtube.py         # yt-dlp + transcript-api wrappers
-├── process_video.py   # the core pipeline, reused everywhere
+├── chunking.py        # local ETL, regex extractors, and open-source embeddings
+├── process_video.py   # fetches and stores raw video data
 ├── prompts/
 │   ├── __init__.py
-│   ├── system.txt     # main analyst system prompt
+│   ├── system.txt     # main analyst system prompt for on-demand search
 │   └── schema.json    # structured output JSON schema
 └── cli/
     ├── __init__.py
-    ├── backfill.py    # MVP entry point
-    └── ask.py         # V1 chat entry point
+    ├── ingest.py      # New MVP entry: 100% free bare-metal fetching
+    ├── embed.py       # Local ETL / Chunking entry
+    └── ask.py         # On-Demand AI querying tool
 ```
 
 The CLI scripts are *thin*. Their job is parse args → call into `src/`

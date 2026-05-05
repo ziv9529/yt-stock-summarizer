@@ -23,6 +23,35 @@ def _looks_like_finance(title: str) -> bool:
     return any(kw in lower for kw in _FINANCE_KEYWORDS)
 
 
+def process_video_metadata(
+    video_id: str,
+    title: str,
+    db_path: Path,
+) -> bool:
+    """Fetch transcript and persist it to SQLite without AI summarization. Returns True if fetched, False if skipped.
+
+    Idempotent: if a transcript already exists, the video is skipped.
+    """
+    with get_connection(db_path) as conn:
+        video = conn.execute("SELECT transcript FROM videos WHERE id = ?", (video_id,)).fetchone()
+        if video and video["transcript"] is not None:
+            log.debug("transcript_already_fetched", video_id=video_id)
+            return False
+
+    transcript_result = fetch_transcript(video_id)
+    if transcript_result is None:
+        log.warning("no_transcript_skipping", video_id=video_id)
+        return False
+
+    transcript_text = segments_to_text(transcript_result.segments)
+
+    with get_connection(db_path) as conn:
+        update_transcript(conn, video_id, transcript_text, transcript_result.language)
+
+    log.info("transcript_fetched", video_id=video_id, title=title)
+    return True
+
+
 def process_video(
     video_id: str,
     title: str,
